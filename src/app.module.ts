@@ -4,6 +4,7 @@ import { APP_PIPE } from "@nestjs/core";
 import { AuthModule } from "./auth/auth.module";
 import { PrismaModule } from "./prisma.module";
 import { constants } from "./_shared/config/config";
+import { PrismaService } from "./prisma.service";
 
 @Module({
   imports: [
@@ -25,4 +26,9 @@ import { constants } from "./_shared/config/config";
     },
   ],
 })
-export class AppModule {}
+export class AppModule {
+  constructor(private readonly prismaService: PrismaService) {}
+  async onModuleInit() {
+    await this.prismaService.seed();
+  }
+}

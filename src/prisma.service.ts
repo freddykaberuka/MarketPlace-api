@@ -2,22 +2,28 @@ import {
   Global,
   INestApplication,
   Injectable,
+  Logger,
   OnModuleInit,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaClient } from ".prisma/client";
+import * as bcrypt from "bcryptjs";
+import { ERole } from "./auth/enums/role.enum";
+import { IConstants } from "./_shared/interfaces/constants.interface";
+import { EStatus } from "./auth/enums/status.enum";
 
 @Injectable()
 @Global()
 export class PrismaService extends PrismaClient implements OnModuleInit {
-  constructor(private readonly configService: ConfigService) {
+  schoolId: string;
+  parentId: string;
+  constructor(private readonly configService: ConfigService<IConstants>) {
     super({
       datasources: {
         db: { url: configService.get("databaseUrl") },
       },
     });
   }
-
   async onModuleInit() {
     await this.$connect();
   }
@@ -27,9 +33,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       await app.close();
     });
   }
-
   /**
    * Apply middleware to prisma for delete, find,...
+   * @param prismaService [PrismaService]
    */
   applyPrismaMiddleware() {
     this.$use(async (params, next) => {
@@ -76,5 +82,34 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       }
       return next(params);
     });
+  }
+
+  /**
+   * Run database seeds
+   */
+  async seed() {
+    Logger.debug(`Start seeding...`);
+    await this.seedAdmin();
+    Logger.debug(`Seeding finished.`);
+  }
+
+  /**
+   * Seed the admin
+   */
+  private async seedAdmin() {
+    if (!(await this.user.count({ where: { role: ERole.ADMIN } }))) {
+      await this.user.create({
+        data: {
+          username: "Test",
+          email: this.configService.get("adminEmail"),
+          password: bcrypt.hashSync(
+            this.configService.get("adminPassword"),
+            10,
+          ),
+          role: ERole.ADMIN,
+          status: EStatus.VERIFIED,
+        },
+      });
+    }
   }
 }

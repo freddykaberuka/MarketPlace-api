@@ -1,13 +1,25 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import { User } from ".prisma/client";
+import * as bcrypt from "bcryptjs";
 import { PrismaService } from "../prisma.service";
+import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { ERole } from "./enums/role.enum";
+import { JwtPayload } from "./interfaces/jwt.payload.interface";
 import { EStatus } from "./enums/status.enum";
-import * as bcrypt from "bcryptjs";
+import { constants } from "src/_shared/config/config";
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prismaService: PrismaService) {}
+  CONSTANTS;
+
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly prismaService: PrismaService,
+  ) {
+    this.CONSTANTS = constants();
+  }
 
   /**
    * Register user
@@ -17,7 +29,6 @@ export class AuthService {
     const { email, password, username, name: fullname } = dto;
 
     return this.prismaService.$transaction(async (tx) => {
-      // Check if user already exists
       const user = await tx.user.findFirst({
         where: {
           OR: [{ email }, { username }],
@@ -29,10 +40,7 @@ export class AuthService {
       if (user || userProfile)
         throw new BadRequestException("User already exists");
 
-      // Hash password
       const hashedPassword = await this.hashPassword(password);
-
-      // Create user
       const newUser = await tx.user.create({
         data: {
           email,
@@ -44,15 +52,22 @@ export class AuthService {
       });
       if (newUser == null || newUser.id == null)
         throw new BadRequestException(
-          "Unable to create user! Please check your input.",
+          "Unable to create user! Please check well your input.",
         );
 
-      // Create user profile
       await tx.userProfile.create({
         data: {
           name: fullname,
           userId: newUser.id,
         },
+      });
+      const { refreshToken } = await this.generateTokens({
+        id: newUser.id,
+        role: newUser.role as ERole,
+      });
+      await tx.user.update({
+        where: { id: newUser.id },
+        data: { refreshToken },
       });
 
       return `Check your email (${newUser.email}) to verify your account.`;
@@ -60,12 +75,120 @@ export class AuthService {
   }
 
   /**
+   * LOGIN
+   * @param dto LOGIN DTO
+   * @returns
+   */
+  async login(dto: LoginDto) {
+    const { email, password } = dto;
+    const user = await this.prismaService.user.findFirst({
+      where: { email },
+    });
+    if (!user)
+      throw new BadRequestException("The email or password is incorrect");
+    const isMatch = this.comparePassword(password, user.password);
+    if (!isMatch) {
+      throw new BadRequestException("The email or password is incorrect");
+    }
+    const { accessToken, refreshToken } = await this.generateTokens({
+      id: user.id,
+      role: user.role as ERole,
+    });
+    await this.prismaService.user.update({
+      where: { id: user.id },
+      data: { refreshToken },
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  /**
+   * VERIFY
+   * @param dto LOGIN DTO
+   * @returns
+   */
+  async verify(reToken: string) {
+    const user = await this.prismaService.user.findFirst({
+      where: { refreshToken: reToken },
+    });
+    if (!user)
+      throw new BadRequestException("The user to verify doesn't exist!");
+
+    await this.prismaService.user.update({
+      where: { id: user.id },
+      data: { status: EStatus.VERIFIED },
+    });
+    const { accessToken, refreshToken } = await this.generateTokens({
+      id: user.id,
+      role: user.role as ERole,
+    });
+    await this.prismaService.user.update({
+      where: { id: user.id },
+      data: { refreshToken, status: EStatus.VERIFIED },
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  /**
+   * Refresh token
+   * @param param0 user
+   * @returns tokens
+   */
+  async refreshToken({
+    id,
+    role,
+    refreshToken,
+  }: User): Promise<{ accessToken: string; refreshToken: string }> {
+    return {
+      accessToken: await this.jwtService.signAsync({
+        id,
+        role,
+      }),
+      refreshToken,
+    };
+  }
+
+  /**
+   * Generate access and refresh tokens
+   * @param param0 Jwt payload
+   * @returns tokens
+   */
+  private async generateTokens({ id, role }: JwtPayload) {
+    const accessToken = await this.jwtService.signAsync({
+      id,
+      role,
+    });
+    const refreshToken = await this.jwtService.signAsync({
+      id,
+    });
+    return { accessToken, refreshToken };
+  }
+
+  /**
    * Hash password
    * @param password Password to hash
    * @returns password hash
    */
-  private async hashPassword(password: string): Promise<string> {
+  hashPassword(password: any) {
     const salt = bcrypt.genSaltSync();
-    return bcrypt.hashSync(password, salt);
+    const hashedPassword = bcrypt.hashSync(password, salt);
+    return hashedPassword;
+  }
+
+  /**
+   * Compare password with hash
+   * @param password Password to compare
+   * @param hash Password hash
+   * @returns boolean result
+   */
+  comparePassword(password: string, hash: string) {
+    return bcrypt.compareSync(password, hash);
   }
 }

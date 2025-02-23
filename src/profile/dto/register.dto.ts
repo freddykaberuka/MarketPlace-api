@@ -1,4 +1,5 @@
 import { IsString } from "class-validator";
+import { LoginDto } from "./login.dto";
 import { EStatus } from "../enums/status.enum";
 
 export enum ESellerOrCustomer {
@@ -6,18 +7,12 @@ export enum ESellerOrCustomer {
   CUSTOMER = "CUSTOMER",
 }
 
-export class RegisterDto {
-  @IsString()
-  email: string;
-
+export class RegisterDto extends LoginDto {
   @IsString()
   username: string;
 
   @IsString()
   name: string;
-
-  @IsString()
-  password: string;
 
   role?: ESellerOrCustomer;
 

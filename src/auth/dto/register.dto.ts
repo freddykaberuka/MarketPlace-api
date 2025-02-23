@@ -1,13 +1,13 @@
-import { IsEmail, IsString, MinLength } from "class-validator";
+import { IsString } from "class-validator";
+import { LoginDto } from "./login.dto";
+import { EStatus } from "../enums/status.enum";
 
-export class RegisterDto {
-  @IsEmail()
-  email: string;
+export enum ESellerOrCustomer {
+  SELLER = "SELLER",
+  CUSTOMER = "CUSTOMER",
+}
 
-  @IsString()
-  @MinLength(8)
-  password: string;
-
+export class RegisterDto extends LoginDto {
   @IsString()
   username: string;
 
